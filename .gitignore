@@ -1,0 +1,5 @@
+*.exe
+go.mod
+go.sum
+go.work
+.vscode/launch.json
