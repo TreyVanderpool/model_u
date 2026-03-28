@@ -27,7 +27,7 @@ func StartEquityStreaming( asSymbols []string, acLog ol.ILogger, acDB *odb.DB, a
 
   lcStreamClient := osch.NewStreamClient()
   lcStreamClient.L = acLog
-  lcStreamClient.DB = acDB
+  lcStreamClient.DB = acDB.DupConnection()
   lcStreamClient.HostName = asStreamHostName
   lcStreamClient.AcctNbr = acSchwab.GetAccountNbr()
   lcStreamClient.Keys = strings.Join( asSymbols, "," )
@@ -35,6 +35,9 @@ func StartEquityStreaming( asSymbols []string, acLog ol.ILogger, acDB *odb.DB, a
   lcStreamClient.SetStoreEquityInDB( true )
   lcStreamClient.Connect()
   lsConnectID := lcStreamClient.GetID()
+
+  defer lcStreamClient.DB.Close()
+
   err := lcStreamClient.EquityOne( EquityEventFunction )
 
   if err != nil {
@@ -61,7 +64,7 @@ func StartBookStreaming( asSymbols []string, acLog ol.ILogger, acDB *odb.DB, acS
 
   lcStreamClient := osch.NewStreamClient()
   lcStreamClient.L = acLog
-  lcStreamClient.DB = acDB
+  lcStreamClient.DB = acDB.DupConnection()
   lcStreamClient.HostName = asStreamHostName
   lcStreamClient.AcctNbr = acSchwab.GetAccountNbr()
   lcStreamClient.Keys = strings.Join( asSymbols, "," )
@@ -69,6 +72,8 @@ func StartBookStreaming( asSymbols []string, acLog ol.ILogger, acDB *odb.DB, acS
   lcStreamClient.SetStoreBooksInDB( true )
   lcStreamClient.Connect()
   lsConnectID := lcStreamClient.GetID()
+
+  defer lcStreamClient.DB.Close()
 
   if( asBookType == "nyse" ) {
     err = lcStreamClient.BookNYSE( BookEventNYSE )

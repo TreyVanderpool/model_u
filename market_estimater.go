@@ -3,10 +3,6 @@ package main
 import (
 	// "container/list"
 	"flag"
-	"fmt"
-	"strings"
-
-	// "strings"
 	"time"
 
 	// "time"
@@ -33,6 +29,7 @@ var (
   Schwab                *osch.SCHWAB
   gcSymbolMap           map[string]_book = make( map[string]_book )
   gcEquityMap           map[string]f.EquityEvent = make( map[string]f.EquityEvent )
+  gcEquityTracker       *osch.EquityTracker = osch.NewEquityTracker()
 )
 
 type _book struct {
@@ -56,6 +53,7 @@ func main() {
   lsSimDate := flag.String( "simdate", "", "date to run for" )
   lsLogLvl := flag.String( "lvl", "info", "logging level" )
   lsHostName := flag.String( "host", "olivertech.site", "stream host name" )
+  lsEndOfDayTime := flag.String( "eod", END_OF_DAY_TIME, "end of day time" )
   flag.Parse()
 
   Log = oinit.Init( oinit.INIT_LOG, lsLogLvl ).(ol.ILogger)
@@ -81,18 +79,34 @@ func main() {
     gcSymbolMap[lSym] = lcBook
   }
 
+  // lsData := `{"data":{"1":1774275475848,"2":[{"0":92.62,"1":829,"2":8,"3":[{"0":"iexg","1":230,"2":37069487},{"0":"nyse","1":150,"2":37069169},{"0":"arcx","1":130,"2":37069488},{"0":"NSDQ","1":129,"2":37069318},{"0":"memx","1":90,"2":37069484},{"0":"batx","1":60,"2":37069483},{"0":"miax","1":30,"2":37069484},{"0":"baty","1":10,"2":37075813}]},{"0":92.61,"1":100,"2":1,"3":[{"0":"edgx","1":100,"2":37072536}]},{"0":92.59,"1":100,"2":1,"3":[{"0":"edga","1":100,"2":37069139}]},{"0":92.48,"1":200,"2":1,"3":[{"0":"mwse","1":200,"2":37069501}]},{"0":92.39,"1":10,"2":1,"3":[{"0":"ETMM","1":10,"2":36943016}]},{"0":92.29,"1":100,"2":1,"3":[{"0":"cinn","1":100,"2":37066734}]},{"0":91.8,"1":360,"2":1,"3":[{"0":"bosx","1":360,"2":37074885}]},{"0":91.79,"1":10,"2":1,"3":[{"0":"JPMS","1":10,"2":37069169}]}],"3":[{"0":92.63,"1":809,"2":6,"3":[{"0":"arcx","1":360,"2":37071772},{"0":"edgx","1":230,"2":37075080},{"0":"nyse","1":120,"2":37074739},{"0":"NSDQ","1":59,"2":37071782},{"0":"batx","1":30,"2":37069570},{"0":"iexg","1":10,"2":37075693}]},{"0":92.64,"1":20,"2":1,"3":[{"0":"memx","1":20,"2":37069169}]},{"0":92.68,"1":100,"2":1,"3":[{"0":"miax","1":100,"2":37072452}]},{"0":92.7,"1":100,"2":1,"3":[{"0":"edga","1":100,"2":37069166}]},{"0":92.77,"1":10,"2":1,"3":[{"0":"ETMM","1":10,"2":36852562}]},{"0":92.8,"1":200,"2":1,"3":[{"0":"mwse","1":200,"2":37072471}]},{"0":93.46,"1":10,"2":1,"3":[{"0":"JPMS","1":10,"2":37069520}]},{"0":93.6,"1":300,"2":1,"3":[{"0":"G","1":300,"2":37072510}]},{"0":94,"1":80,"2":2,"3":[{"0":"baty","1":50,"2":37069139},{"0":"amex","1":30,"2":37072481}]}],"key":"NFLX","ts":1774275476001},"cmd":"BQ   "}`
+  // lbFile, err := os.ReadFile( "\\temp\\dbg.txt" )
+  // if err != nil {
+  //   Log.Exception( err )
+  //   return
+  // }
+  // lcStreamClient := osch.NewStreamClient()
+  // lcStreamClient.L = Log
+  // lcStreamClient.DB = DB
+  // for _, lLine := range strings.Split( string(lbFile), "\n" ) {
+  //   lcBook, _ := osch.ParseBook( lLine )
+  //   lcStreamClient.SaveBookToDB( lcBook, "q" )
+  // }
+
+  // os.Exit(0)
+
   if *lsSimDate > "" {
-    f.SimulateData( *lsSymbol, *lsSimDate, Log, DB, _Equity, _Book )
+    f.SimulateData( *lsSymbol, *lsSimDate, Log, DB, _Equity, _Book2 )
   } else {
-    go f.StartEquityStreaming( lsSymbolList, Log, DB, Schwab, *lsHostName, END_OF_DAY_TIME )
-    go f.StartBookStreaming( lsSymbolList, Log, DB, Schwab, *lsHostName, "nyse", END_OF_DAY_TIME )
-    go f.StartBookStreaming( lsSymbolList, Log, DB, Schwab, *lsHostName, "nasdaq", END_OF_DAY_TIME )
+    go f.StartEquityStreaming( lsSymbolList, Log, DB, Schwab, *lsHostName, *lsEndOfDayTime )
+    go f.StartBookStreaming( lsSymbolList, Log, DB, Schwab, *lsHostName, "nyse", *lsEndOfDayTime )
+    go f.StartBookStreaming( lsSymbolList, Log, DB, Schwab, *lsHostName, "nasdaq", *lsEndOfDayTime )
   }
 
-  lcTimeUntil := ou.GetDurationFromTime( END_OF_DAY_TIME, time.Duration( 1 * time.Minute ) )
+  lcTimeUntil := ou.GetDurationFromTime( *lsEndOfDayTime, time.Duration( 1 * time.Minute ) )
 
   Log.Info( "EOD: Block until: %s:  Curr Time: %s  Wait Time: %s",
-            END_OF_DAY_TIME, time.Now().Local().Format( ou.HH_MM_SS ), lcTimeUntil.String() )
+            *lsEndOfDayTime, time.Now().Local().Format( ou.HH_MM_SS ), lcTimeUntil.String() )
   time.Sleep( lcTimeUntil )
 }
 
@@ -128,6 +142,27 @@ func _Equity( acData f.EquityEvent ) {
             lcEquity.BidSize,
             lcEquity.BidPrice,
             lcEquity.AskBidSpread )
+}
+
+//--------------------------------------------------
+// Function: _Book
+//--------------------------------------------------
+func _Book2( acData *osch.SCRBook ) {
+  // Log.Info( "%-6s : %s", acData.Data.Symbol, acData.Data.MarketTimeStr )
+
+  lcAskChgs, lcBidChgs := gcEquityTracker.AddBook( acData, true )
+
+  Log.Info( "ASK:  New: %2d  Chg: %2d  Del: %2d  UChg: %2d : %6d   BID:  New: %2d  Chg: %2d  Del: %2d  UChg: %2d : %6d",
+            len( lcAskChgs.New ),
+            len( lcAskChgs.Changed ),
+            len( lcAskChgs.Deleted ),
+            len( lcAskChgs.Unchanged ),
+            lcAskChgs.GetTotalSize(),
+            len( lcBidChgs.New ),
+            len( lcBidChgs.Changed ),
+            len( lcBidChgs.Deleted ),
+            len( lcBidChgs.Unchanged ),
+            lcBidChgs.GetTotalSize() )
 }
 
 //--------------------------------------------------
