@@ -1,16 +1,26 @@
 package funcs
 
 import (
-  "fmt"
+	"fmt"
+	"time"
 
-  osql "github.com/TreyVanderpool/oliver-golib/sql"
-  ol "github.com/TreyVanderpool/oliver-golib/logging"
 	odb "github.com/TreyVanderpool/oliver-golib/db"
 	oinit "github.com/TreyVanderpool/oliver-golib/init"
+	ol "github.com/TreyVanderpool/oliver-golib/logging"
+	osch "github.com/TreyVanderpool/oliver-golib/schwab"
+	osql "github.com/TreyVanderpool/oliver-golib/sql"
+  ou "github.com/TreyVanderpool/oliver-golib/utils"
 )
 
 var (
   __SQLs       osql.SQLs
+  liB_TSIdx    int
+  liB_SymIdx   int
+  liB_TypeIdx  int
+  liB_PAIdx    int
+  liB_MIIdx    int
+  liB_SQIdx    int
+  liB_MTIdx    int
 )
 
 type EquityEvent struct {
@@ -36,7 +46,7 @@ type BookEvent struct {
 //--------------------------------------------------
 // Function: main
 //--------------------------------------------------
-func SimulateData( asSymbols, asDate string, acLog ol.ILogger, acDB *odb.DB, apEquityFunc func(EquityEvent), apBookFunc func(BookEvent) ) {
+func SimulateData( asSymbols, asDate string, acLog ol.ILogger, acDB *odb.DB, apEquityFunc func(EquityEvent), apBookFunc func(*osch.SCRBook) ) {
   __SQLs = oinit.Init( oinit.INIT_SQLS, acDB, acLog ).(osql.SQLs)
 
   lsCols := "tran_ts,symbol,ask_price,bid_price,ask_size,bid_size"
@@ -49,7 +59,7 @@ func SimulateData( asSymbols, asDate string, acLog ol.ILogger, acDB *odb.DB, apE
     return
   }
 
-  lcBooks, err := __SQLs.R_StreamBooksBySymbol( asSymbols, lsWhere, "*", "tran_ts, symbol" )
+  lcBooks, err := __SQLs.R_StreamBooksBySymbol( asSymbols, lsWhere, "*", "tran_ts, symbol, type_id, price_amt, marker_time" )
 
   if err != nil {
     acLog.Exception( err )
@@ -65,33 +75,38 @@ func SimulateData( asSymbols, asDate string, acLog ol.ILogger, acDB *odb.DB, apE
   lsEquityTS := "2099-12-31"
   lsBookTS := "2099-12-31"
   lcEquityEvent := EquityEvent{}
-  lcBookEvent := BookEvent{}
+  // lcBookEvent := BookEvent{}
   liE_TSIdx := lcEquities.Fields["tran_ts"]
   liE_SymIdx := lcEquities.Fields["symbol"]
   liE_ASIdx := lcEquities.Fields["ask_size"]
   liE_APIdx := lcEquities.Fields["ask_price"]
   liE_BSIdx := lcEquities.Fields["bid_size"]
   liE_BPIdx := lcEquities.Fields["bid_price"]
-  liB_TSIdx := lcBooks.Fields["tran_ts"]
-  liB_SymIdx := lcBooks.Fields["symbol"]
-  liB_TypeIdx := lcBooks.Fields["type_id"]
-  liB_PAIdx := lcBooks.Fields["price_amt"]
-  liB_MIIdx := lcBooks.Fields["marker_id"]
-  liB_SQIdx := lcBooks.Fields["size_qty"]
-  liB_MTIdx := lcBooks.Fields["marker_time"]
+  liB_TSIdx = lcBooks.Fields["tran_ts"]
+  liB_SymIdx = lcBooks.Fields["symbol"]
+  liB_TypeIdx = lcBooks.Fields["type_id"]
+  liB_PAIdx = lcBooks.Fields["price_amt"]
+  liB_MIIdx = lcBooks.Fields["marker_id"]
+  liB_SQIdx = lcBooks.Fields["size_qty"]
+  liB_MTIdx = lcBooks.Fields["marker_time"]
+
+  // lcEquityTracker := osch.EquityTracker{}
+  lcSCRBook := &osch.SCRBook{}
 
   if ! lbEOFEquities {
     lsEquityTS = lcEquities.Row.Str( liE_TSIdx )
   }
 
+
   if ! lbEOFBooks {
-    lsBookTS = lcBooks.Row.Str( liB_TSIdx )
+    lsBookTS, lcSCRBook, lbEOFBooks = createBook( lcBooks )
   }
 
   lbEquityEvent := false
   lbBookEvent := false
 
   for ! lbEOFEquities || ! lbEOFBooks {
+
     if lsEquityTS == lsBookTS {
       lbEquityEvent = true
       lbBookEvent = true
@@ -123,16 +138,9 @@ func SimulateData( asSymbols, asDate string, acLog ol.ILogger, acDB *odb.DB, apE
 
     if lbBookEvent {
       if apBookFunc != nil {
-        lcBookEvent.TranDate = lcBooks.Row.Str( liB_TSIdx )
-        lcBookEvent.Symbol = lcBooks.Row.Str( liB_SymIdx )
-        lcBookEvent.Type = lcBooks.Row.Str( liB_TypeIdx )
-        lcBookEvent.Price = lcBooks.Row.Float( liB_PAIdx )
-        lcBookEvent.MarkerName = lcBooks.Row.Str( liB_MIIdx )
-        lcBookEvent.Size = lcBooks.Row.Int( liB_SQIdx )
-        lcBookEvent.MarkerTime = lcBooks.Row.Str( liB_MTIdx )
-        apBookFunc( lcBookEvent )
+        apBookFunc( lcSCRBook )
       }
-      lbEOFBooks = lcBooks.Next()
+      lsBookTS, lcSCRBook, lbEOFBooks = createBook( lcBooks )
       if ! lbEOFBooks {
         lsBookTS = lcBooks.Row.Str( liB_TSIdx )
       } else {
@@ -140,8 +148,45 @@ func SimulateData( asSymbols, asDate string, acLog ol.ILogger, acDB *odb.DB, apE
       }
     }
   }
-  // }
 
-  // acLog.Info( "SQL: %s", lcEquities.SQL )
   acLog.Info( "Total Rows: Equities: %d  Books: %d", lcEquities.RowCount, lcBooks.RowCount )
+}
+
+func createBook( acResult *osql.OResult ) ( string, *osch.SCRBook, bool ) {
+  lbEOF := false
+  lcBook := &osch.SCRBook{}
+  lcBook.Data.Symbol = acResult.Row.Str( liB_SymIdx )
+  lcBook.Data.MarketTimeStr = acResult.Row.Str( liB_TSIdx )
+  lcBook.Data.AskSide = make( []osch.SCRBookSide, 0 )
+  lcBook.Data.BidSide = make( []osch.SCRBookSide, 0 )
+
+  for ! lbEOF &&
+      lcBook.Data.MarketTimeStr == acResult.Row.Str( liB_TSIdx ) &&
+      lcBook.Data.Symbol == acResult.Row.Str( liB_SymIdx ) {
+      lsType := acResult.Row.Str( liB_TypeIdx )
+      lcBS := osch.SCRBookSide{}
+      lcBS.Price = acResult.Row.Float( liB_PAIdx )
+      for ! lbEOF &&
+          lcBS.Price == acResult.Row.Float( liB_PAIdx ) &&
+          lsType == acResult.Row.Str( liB_TypeIdx ) &&
+          lcBook.Data.MarketTimeStr == acResult.Row.Str( liB_TSIdx ) &&
+          lcBook.Data.Symbol == acResult.Row.Str( liB_SymIdx ) {
+        lcML := osch.SCRMarkList{}
+        lcML.MarkerID = acResult.Row.Str( liB_MIIdx )
+        lcML.Size = acResult.Row.Int( liB_SQIdx )
+        lcTime, _ := time.Parse( ou.TIMESTAMPFORMAT, "1970-01-01 " + acResult.Row.Str( liB_MTIdx ) )
+        lcML.Time = int(lcTime.UnixMilli())
+        lcBS.Size += lcML.Size
+        lcBS.MarketList = append( lcBS.MarketList, lcML )
+        lbEOF = acResult.Next()
+      }
+      if lsType == "a" {
+        lcBook.Data.AskSide = append( lcBook.Data.AskSide, lcBS )
+      } else {
+        lcBook.Data.BidSide = append( lcBook.Data.BidSide, lcBS )
+      }
+
+  }
+
+  return lcBook.Data.MarketTimeStr, lcBook, lbEOF
 }
