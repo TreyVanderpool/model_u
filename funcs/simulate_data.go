@@ -46,7 +46,7 @@ type BookEvent struct {
 //--------------------------------------------------
 // Function: main
 //--------------------------------------------------
-func SimulateData( asSymbols, asDate string, acLog ol.ILogger, acDB *odb.DB, apEquityFunc func(EquityEvent), apBookFunc func(*osch.SCRBook) ) {
+func SimulateData( asSymbols, asDate string, acLog ol.ILogger, acDB *odb.DB, apEquityFunc func(*osch.SEquityOne), apBookFunc func(*osch.SCRBook) ) {
   __SQLs = oinit.Init( oinit.INIT_SQLS, acDB, acLog ).(osql.SQLs)
 
   lsCols := "tran_ts,symbol,ask_price,bid_price,ask_size,bid_size"
@@ -67,14 +67,14 @@ func SimulateData( asSymbols, asDate string, acLog ol.ILogger, acDB *odb.DB, apE
     return
   }
 
-  defer lcEquities.Close()
-  defer lcBooks.Close()
+  // defer lcEquities.Close()
+  // defer lcBooks.Close()
 
   lbEOFEquities := lcEquities.Next()
   lbEOFBooks := lcBooks.Next()
   lsEquityTS := "2099-12-31"
   lsBookTS := "2099-12-31"
-  lcEquityEvent := EquityEvent{}
+  lcEquityEvent := &osch.SEquityOne{}
   // lcBookEvent := BookEvent{}
   liE_TSIdx := lcEquities.Fields["tran_ts"]
   liE_SymIdx := lcEquities.Fields["symbol"]
@@ -120,6 +120,7 @@ func SimulateData( asSymbols, asDate string, acLog ol.ILogger, acDB *odb.DB, apE
 
     if lbEquityEvent {
       if apEquityFunc != nil {
+        lcEquityEvent = new( osch.SEquityOne )
         lcEquityEvent.TranDate = lcEquities.Row.Str( liE_TSIdx )
         lcEquityEvent.Symbol = lcEquities.Row.Str( liE_SymIdx )
         lcEquityEvent.AskSize = lcEquities.Row.Int( liE_ASIdx )
